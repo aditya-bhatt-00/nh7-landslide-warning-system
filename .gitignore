@@ -1,0 +1,16 @@
+# Python / FastAPI
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.venv/
+
+# Environment Variables (Keep your tokens safe!)
+.env
+
+# Next.js / Node (If your frontend is in the same folder)
+node_modules/
+.next/
+out/
+build/

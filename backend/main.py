@@ -158,7 +158,9 @@ async def lifespan(app: FastAPI):
     monitor_task.cancel()
     print("Background monitor shut down.")
 
-app = FastAPI(lifespan=lifespan)
+@app.get("/ping")
+async def ping():
+    return {"status": "alive"}
 
 app.add_middleware(
     CORSMiddleware,

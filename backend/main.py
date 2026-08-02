@@ -1,42 +1,22 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
-import asyncio
 import requests
 import math
-import time
 
-# ==========================================
-# TELEGRAM CONFIGURATION
-# ==========================================
-TELEGRAM_BOT_TOKEN = "8671369860:AAFcfUFSOygWJnvjA5uEM9ezpTv7Vxy9vXA"
-TELEGRAM_CHAT_ID = "1980965381"
+# Initialize FastAPI App
+app = FastAPI(title="NH-7 Landslide Early Warning System API")
 
-# Alert track variables
-last_alert_time = 0  
-ALERT_COOLDOWN_SECONDS = 3600     # 1 hour cooldown between alerts
-MONITOR_INTERVAL_SECONDS = 300    # Check weather every 5 minutes (300 seconds)
+# Configure CORS so your Next.js frontend can talk to this backend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
-def send_telegram_alert(message_body):
-    """Sends a push notification to Telegram using Bot API."""
-    try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        payload = {
-            "chat_id": TELEGRAM_CHAT_ID,
-            "text": message_body,
-            "parse_mode": "Markdown"
-        }
-        response = requests.post(url, json=payload, timeout=5)
-        
-        if response.status_code == 200:
-            print("Telegram Alert sent successfully!")
-        else:
-            print(f"Failed to send Telegram alert: {response.text}")
-    except Exception as e:
-        print(f"Telegram Request Error: {e}")
-
-# Geographic coordinate path for NH-58
-NH58_ANCHOR_WAYPOINTS = [
+# Geographic coordinate path for NH-7
+NH7_ANCHOR_WAYPOINTS = [
     (78.980, 30.285),  # Rudraprayag
     (79.030, 30.280),
     (79.070, 30.275),  # Raturi Sera
@@ -81,7 +61,7 @@ def generate_500m_segments(anchors, current_rain, rain_24h, target_segment_len_k
         chainage_end = (idx + 1) * 0.5
         
         segments.append({
-            "segment_id": f"NH58-KM-{chainage_start:.1f}to{chainage_end:.1f}",
+            "segment_id": f"NH7-KM-{chainage_start:.1f}to{chainage_end:.1f}",
             "chainage": f"KM {chainage_start:.1f} - {chainage_end:.1f}",
             "hazard_score": hazard_score,
             "coords": [all_points[idx], all_points[idx+1]]
@@ -89,93 +69,16 @@ def generate_500m_segments(anchors, current_rain, rain_24h, target_segment_len_k
         
     return segments
 
-# ==========================================
-# 24/7 BACKGROUND MONITORING TASK
-# ==========================================
-async def weather_monitoring_loop():
-    """Runs continuously in the background, checking weather and triggering alerts."""
-    global last_alert_time
-    print("🌍 Background Weather Monitor Initialized (Checking every 5 minutes)...")
-    
-    while True:
-        try:
-            # 1. Fetch Live Weather
-            url = (
-                "https://api.open-meteo.com/v1/forecast?"
-                "latitude=30.285&longitude=78.980"
-                "&current=precipitation,rain"
-                "&hourly=precipitation"
-                "&past_days=1"
-                "&timezone=auto"
-            )
-            # Use run_in_executor to prevent blocking the async loop with a synchronous requests.get
-            loop = asyncio.get_event_loop()
-            res = await loop.run_in_executor(None, lambda: requests.get(url, timeout=5).json())
-            
-            current_rain = res.get("current", {}).get("precipitation", 0.0)
-            hourly_precip = res.get("hourly", {}).get("precipitation", [])
-            
-            if len(hourly_precip) >= 24:
-                rain_24h = round(sum(hourly_precip[-24:]), 1)
-            else:
-                rain_24h = round(sum(hourly_precip), 1)
-
-            # 2. Generate Segments to check hazards
-            micro_segments = generate_500m_segments(NH58_ANCHOR_WAYPOINTS, current_rain, rain_24h)
-            high_risk_count = sum(1 for seg in micro_segments if seg["hazard_score"] >= 0.75)
-
-            # 3. Alert Logic
-            current_time = time.time()
-            if high_risk_count > 0 and (current_time - last_alert_time) > ALERT_COOLDOWN_SECONDS:
-                print(f"⚠️ HIGH RISK DETECTED ({high_risk_count} zones). Dispatching Telegram alert...")
-                alert_msg = (
-                    f"🚨 *NH-58 SAFETY ALERT* 🚨\n\n"
-                    f"*{high_risk_count} High-Risk landslide zones* detected between Rudraprayag and Chamoli.\n\n"
-                    f"🌧️ *Live Rain:* {current_rain} mm/hr\n"
-                    f"🌊 *24h Total:* {rain_24h} mm\n\n"
-                    f"⚠️ _Night travel is strictly restricted. Seek staging zones immediately._"
-                )
-                send_telegram_alert(alert_msg)
-                last_alert_time = current_time
-            else:
-                print(f"✅ Coast clear. Live Rain: {current_rain}mm. High Risk Zones: {high_risk_count}.")
-
-        except Exception as e:
-            print(f"Background Monitor Error: {e}")
-
-        # Sleep for the designated interval before checking again
-        await asyncio.sleep(MONITOR_INTERVAL_SECONDS)
-
-# ==========================================
-# APP LIFESPAN & FASTAPI SETUP
-# ==========================================
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # This runs when the server starts
-    monitor_task = asyncio.create_task(weather_monitoring_loop())
-    yield
-    # This runs when the server stops
-    monitor_task.cancel()
-    print("Background monitor shut down.")
 
 @app.get("/ping")
 async def ping():
-    return {"status": "alive"}
+    """Health check endpoint."""
+    return {"status": "alive", "system": "NH-7 Early Warning API"}
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
-# ==========================================
-# FRONTEND API ENDPOINT (Decoupled from Alerts)
-# ==========================================
 @app.get("/api/segments")
 def get_segments(simulate_rain: bool = False):
-    """Provides segment data to the UI. Does NOT trigger actual Telegram alerts."""
+    """Provides segment data to the UI for mapping."""
     current_rain = 0.0
     rain_24h = 0.0
     
@@ -204,7 +107,7 @@ def get_segments(simulate_rain: bool = False):
         current_rain = 14.2  
         rain_24h = 48.5      
 
-    micro_segments = generate_500m_segments(NH58_ANCHOR_WAYPOINTS, current_rain, rain_24h)
+    micro_segments = generate_500m_segments(NH7_ANCHOR_WAYPOINTS, current_rain, rain_24h)
 
     features = []
     for seg in micro_segments:

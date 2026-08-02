@@ -1,0 +1,33 @@
+name: NH-7 Landslide Scheduled Monitor
+
+on:
+  schedule:
+    # Run at the top of every hour
+    - cron: '0 * * * *'
+  workflow_dispatch: # Allows you to manually trigger it from the GitHub website
+
+jobs:
+  run-monitor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11' # Match your local version
+
+      - name: Install Dependencies
+        run: |
+          cd backend
+          pip install requests
+
+      - name: Run Worker Script
+        env:
+          # Pulls secrets from your GitHub repository settings
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }} 
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+        run: |
+          cd backend
+          python worker.py

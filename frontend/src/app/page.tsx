@@ -19,7 +19,7 @@ const MapComponent = dynamic(() => import("@/components/MapComponent"), {
   ssr: false,
   loading: () => (
     <div className="w-full h-full min-h-[500px] bg-slate-900 animate-pulse rounded-lg flex items-center justify-center text-slate-400">
-      Loading NH-58 GIS Map Engine...
+      Loading NH-7 GIS Map Engine...
     </div>
   ),
 });
@@ -84,7 +84,7 @@ export default function Dashboard() {
           <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></div>
           <div>
             <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-              NH-58 Travel Safety & Landslide Alert System
+              NH-7 Travel Safety & Landslide Alert System
             </h1>
             <p className="text-xs text-slate-400">
               Live corridor monitoring: Rudraprayag &rarr; Gauchar &rarr; Karnaprayag &rarr; Chamoli
@@ -272,7 +272,7 @@ export default function Dashboard() {
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 max-w-md w-full shadow-2xl">
             <h3 className="text-lg font-bold text-white mb-2">Subscribe to Live SMS Alerts</h3>
             <p className="text-xs text-slate-400 mb-4">
-              Receive real-time automated SMS notifications whenever severe rainfall or landslide warnings are detected on NH-58.
+              Receive real-time automated SMS notifications whenever severe rainfall or landslide warnings are detected on NH-7.
             </p>
             <form onSubmit={handleSmsSubmit} className="space-y-4">
               <div>

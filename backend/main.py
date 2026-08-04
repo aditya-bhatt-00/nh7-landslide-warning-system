@@ -2,28 +2,14 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import requests
 import math
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 
-app = FastAPI()
-
-# Enable CORS for all origins so Vercel can fetch data smoothly
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Allows requests from Vercel/any domain
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Your existing routes below...
 # Initialize FastAPI App
 app = FastAPI(title="NH-7 Landslide Early Warning System API")
 
 # Configure CORS so your Next.js frontend can talk to this backend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Allows requests from Vercel/any domain
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -82,6 +68,16 @@ def generate_500m_segments(anchors, current_rain, rain_24h, target_segment_len_k
         })
         
     return segments
+
+
+@app.get("/")
+def read_root():
+    """Root route to eliminate 404 on base URL."""
+    return {
+        "status": "online",
+        "system": "NH-7 Landslide Early Warning System API",
+        "docs": "/docs"
+    }
 
 
 @app.get("/ping")

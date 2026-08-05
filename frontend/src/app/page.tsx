@@ -36,7 +36,7 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await fetch("http://127.0.0.1:8000/api/segments");
+        const res = await fetch("https://nh7-landslide-warning-system.onrender.com");
         if (res.ok) {
           const data = await res.json();
           setGeoData(data);

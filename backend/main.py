@@ -1,12 +1,17 @@
+import asyncio
+import math
+import time
+import requests
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import requests
-import math
 
+from backend.worker import send_telegram_alert  # only the Telegram sender lives in worker.py now
+
+# ============================================================
 # Initialize FastAPI App
+# ============================================================
 app = FastAPI(title="NH-7 Landslide Early Warning System API")
 
-# Configure CORS so your Next.js frontend can talk to this backend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Allows requests from Vercel/any domain
@@ -15,7 +20,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ============================================================
 # Geographic coordinate path for NH-7 [longitude, latitude]
+# ============================================================
 NH7_ANCHOR_WAYPOINTS = [
     (78.980, 30.285),  # Rudraprayag
     (79.030, 30.280),
@@ -30,10 +37,116 @@ NH7_ANCHOR_WAYPOINTS = [
     (79.330, 30.338),  # Chamoli
 ]
 
+OPEN_METEO_URL = (
+    "https://api.open-meteo.com/v1/forecast?"
+    "latitude=30.285&longitude=78.980"
+    "&current=precipitation,rain"
+    "&hourly=precipitation"
+    "&past_days=1"
+    "&timezone=auto"
+)
+OPEN_METEO_HEADERS = {
+    "User-Agent": "NH7-Landslide-System/1.0 (Contact: aditya.bhatt.tech@gmail.com)"
+}
 
+REFRESH_INTERVAL_SECONDS = 300  # 5 minutes
+REQUEST_TIMEOUT_SECONDS = 20    # was 10 — too tight for Render cold starts
+MAX_RETRIES = 2
+HIGH_RISK_THRESHOLD = 0.75
+
+# ============================================================
+# In-memory weather cache
+# ============================================================
+weather_cache = {
+    "current_rain_mm_hr": 0.0,
+    "rain_24h_mm": 0.0,
+    "status": "initializing",   # "ok" | "stale" | "error"
+    "last_updated_unix": None,
+    "last_error": None,
+}
+
+
+async def fetch_weather_once():
+    """Single attempt at hitting Open-Meteo. Uses to_thread to prevent server freeze."""
+    response = await asyncio.to_thread(
+        requests.get, OPEN_METEO_URL, headers=OPEN_METEO_HEADERS, timeout=REQUEST_TIMEOUT_SECONDS
+    )
+    response.raise_for_status()
+    res = response.json()
+
+    current_rain = res.get("current", {}).get("precipitation", 0.0)
+    hourly_precip = res.get("hourly", {}).get("precipitation", [])
+    if len(hourly_precip) >= 24:
+        rain_24h = round(sum(hourly_precip[-24:]), 1)
+    else:
+        rain_24h = round(sum(hourly_precip), 1)
+
+    return current_rain, rain_24h
+
+
+async def refresh_weather_cache():
+    """Fetches live weather with retries and updates the cache in place asynchronously."""
+    last_exception = None
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            current_rain, rain_24h = await fetch_weather_once()
+            weather_cache["current_rain_mm_hr"] = current_rain
+            weather_cache["rain_24h_mm"] = rain_24h
+            weather_cache["status"] = "ok"
+            weather_cache["last_updated_unix"] = time.time()
+            weather_cache["last_error"] = None
+            print(f"✅ Weather refreshed: current={current_rain}mm/hr, 24h={rain_24h}mm")
+            return
+        except Exception as e:
+            last_exception = e
+            print(f"⚠️ Weather fetch attempt {attempt}/{MAX_RETRIES} failed: {e}")
+
+    # All retries failed
+    weather_cache["status"] = "error" if weather_cache["last_updated_unix"] is None else "stale"
+    weather_cache["last_error"] = str(last_exception)
+    print(f"❌ Weather refresh failed after {MAX_RETRIES} attempts. Serving last known data. Error: {last_exception}")
+
+
+async def weather_refresh_loop():
+    """Background task: refreshes the weather cache every REFRESH_INTERVAL_SECONDS."""
+    while True:
+        await refresh_weather_cache()
+        check_and_dispatch_alert()
+        await asyncio.sleep(REFRESH_INTERVAL_SECONDS)
+
+
+def check_and_dispatch_alert():
+    """Uses the current cache to check for high-risk segments and fire a Telegram alert."""
+    current_rain = weather_cache["current_rain_mm_hr"]
+    rain_24h = weather_cache["rain_24h_mm"]
+
+    micro_segments = generate_500m_segments(NH7_ANCHOR_WAYPOINTS, current_rain, rain_24h)
+    high_risk_count = sum(1 for seg in micro_segments if seg["hazard_score"] >= HIGH_RISK_THRESHOLD)
+
+    if high_risk_count > 0:
+        alert_msg = (
+            f"🚨 *NH-7 SAFETY ALERT* 🚨\n\n"
+            f"*{high_risk_count} High-Risk landslide zones* detected between Rudraprayag and Chamoli.\n\n"
+            f"🌧️ *Live Rain:* {current_rain} mm/hr\n"
+            f"🌊 *24h Total:* {rain_24h} mm\n\n"
+            f"⚠️ _Night travel is strictly restricted. Seek staging zones immediately._"
+        )
+        send_telegram_alert(alert_msg)
+
+
+@app.on_event("startup")
+async def start_background_refresh():
+    # Await the first fetch so the cache is hot immediately, but asynchronously
+    await refresh_weather_cache()
+    asyncio.create_task(weather_refresh_loop())
+
+
+# ============================================================
+# Segment generation
+# ============================================================
 def generate_500m_segments(anchors, current_rain, rain_24h, target_segment_len_km=0.5):
     all_points = []
-    # Interpolate path into smaller discrete points
     for i in range(len(anchors) - 1):
         p1, p2 = anchors[i], anchors[i + 1]
         dx = (p2[0] - p1[0]) * 111 * math.cos(math.radians(p1[1]))
@@ -47,12 +160,10 @@ def generate_500m_segments(anchors, current_rain, rain_24h, target_segment_len_k
             lat = p1[1] + t * (p2[1] - p1[1])
             all_points.append([round(lon, 5), round(lat, 5)])
 
-    # Ensure final anchor point is formatted consistently as [lon, lat] list
     last_anchor = anchors[-1]
     all_points.append([round(last_anchor[0], 5), round(last_anchor[1], 5)])
 
     segments = []
-    # Generate 500m segments with Dynamic Hazard Scoring
     for idx in range(len(all_points) - 1):
         base_vulnerability = 0.20 + (math.sin(idx * 0.15) * 0.15)
         rain_factor = (rain_24h / 150.0) + (current_rain / 20.0)
@@ -73,9 +184,11 @@ def generate_500m_segments(anchors, current_rain, rain_24h, target_segment_len_k
     return segments
 
 
+# ============================================================
+# Routes
+# ============================================================
 @app.get("/")
 def read_root():
-    """Root route to eliminate 404 on base URL."""
     return {
         "status": "online",
         "system": "NH-7 Landslide Early Warning System API",
@@ -85,43 +198,14 @@ def read_root():
 
 @app.get("/ping")
 async def ping():
-    """Health check endpoint."""
     return {"status": "alive", "system": "NH-7 Early Warning API"}
 
 
 @app.get("/api/segments")
 def get_segments(simulate_rain: bool = False):
-    """Provides segment data to the UI for mapping."""
-    current_rain = 0.0
-    rain_24h = 0.0
-
-    try:
-        url = (
-            "https://api.open-meteo.com/v1/forecast?"
-            "latitude=30.285&longitude=78.980"
-            "&current=precipitation,rain"
-            "&hourly=precipitation"
-            "&past_days=1"
-            "&timezone=auto"
-        )
-        # Custom User-Agent header and extended timeout to prevent cloud IP blocking on Render
-        headers = {"User-Agent": "NH7-Landslide-System/1.0 (Contact: aditya.bhatt.tech@gmail.com)"}
-        response = requests.get(url, headers=headers, timeout=10)
-        
-        if response.status_code == 200:
-            res = response.json()
-            current_rain = res.get("current", {}).get("precipitation", 0.0)
-
-            hourly_precip = res.get("hourly", {}).get("precipitation", [])
-            if len(hourly_precip) >= 24:
-                rain_24h = round(sum(hourly_precip[-24:]), 1)
-            else:
-                rain_24h = round(sum(hourly_precip), 1)
-        else:
-            print(f"Open-Meteo returned status code: {response.status_code}")
-
-    except Exception as e:
-        print("Telemetry Fetch Error:", e)
+    """Provides segment data to the UI for mapping. Reads directly from cache."""
+    current_rain = weather_cache["current_rain_mm_hr"]
+    rain_24h = weather_cache["rain_24h_mm"]
 
     if simulate_rain:
         current_rain = 14.2
@@ -151,7 +235,10 @@ def get_segments(simulate_rain: bool = False):
         "type": "FeatureCollection",
         "telemetry": {
             "current_rain_mm_hr": current_rain,
-            "rain_24h_mm": rain_24h
+            "rain_24h_mm": rain_24h,
+            "status": weather_cache["status"],
+            "last_updated_unix": weather_cache["last_updated_unix"],
+            "last_error": weather_cache["last_error"] if simulate_rain is False else None,
         },
         "total_segments": len(features),
         "features": features

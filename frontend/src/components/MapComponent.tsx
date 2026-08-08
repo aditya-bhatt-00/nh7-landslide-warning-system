@@ -71,14 +71,13 @@ export default function MapComponent({ geoJsonData }: MapProps) {
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
 
-        {geoJsonData && (
-          <GeoJSON
-            key={JSON.stringify(geoJsonData)}
-            data={geoJsonData}
-            style={styleSegment}
-            onEachFeature={onEachFeature}
-          />
-        )}
+        {geoJsonData && geoJsonData.type === "FeatureCollection" && geoJsonData.features && (
+  <GeoJSON
+    key={JSON.stringify(geoJsonData)}
+    data={geoJsonData}
+    style={styleSegment}
+  />
+)}
       </MapContainer>
 
       {/* Floating Map Legend Overlay */}

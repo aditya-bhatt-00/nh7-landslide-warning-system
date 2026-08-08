@@ -36,7 +36,9 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const res = await fetch("https://nh7-landslide-warning-system.onrender.com");
+        const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
+        const res = await fetch(`${API_BASE_URL}/api/segments`);
+        
         if (res.ok) {
           const data = await res.json();
           setGeoData(data);
@@ -49,7 +51,7 @@ export default function Dashboard() {
             });
           }
 
-          // Dynamic hazard counting across all 100 micro-segments
+          // Dynamic hazard counting across all micro-segments
           let high = 0, mod = 0, low = 0;
           data.features?.forEach((f: any) => {
             const score = f.properties?.hazard_score || 0;

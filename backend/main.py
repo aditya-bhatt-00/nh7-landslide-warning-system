@@ -5,7 +5,7 @@ import requests
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.worker import send_telegram_alert  # only the Telegram sender lives in worker.py now
+from worker import send_telegram_alert  # only the Telegram sender lives in worker.py now
 
 # ============================================================
 # Initialize FastAPI App

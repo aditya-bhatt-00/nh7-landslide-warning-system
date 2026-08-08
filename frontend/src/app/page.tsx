@@ -37,7 +37,7 @@ export default function Dashboard() {
     const fetchData = async () => {
       try {
         const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
-        const res = await fetch(`${API_BASE_URL}/api/segments`);
+        const res = await fetch(`${API_BASE_URL}/api/segments?simulate_rain=true`, { cache: 'no-store' });
         
         if (res.ok) {
           const data = await res.json();

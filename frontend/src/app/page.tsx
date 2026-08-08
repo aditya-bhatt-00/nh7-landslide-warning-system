@@ -26,7 +26,7 @@ const MapComponent = dynamic(() => import("@/components/MapComponent"), {
 
 export default function Dashboard() {
   const [geoData, setGeoData] = useState<any>(null);
-  const [weather, setWeather] = useState({ current_rain_mm_hr: 0, rain_24h_mm: 0 });
+  const [weather, setWeather] = useState({ current_rain_mm_hr: 0, rain_24h_mm: 0, status: "initializing" });
   const [counts, setCounts] = useState({ high: 0, moderate: 0, low: 0 });
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [phone, setPhone] = useState("");
@@ -43,11 +43,12 @@ export default function Dashboard() {
           const data = await res.json();
           setGeoData(data);
 
-          // Direct telemetry parse from Open-Meteo payload
+          // Direct telemetry parse from Open-Meteo payload including the new status field
           if (data.telemetry) {
             setWeather({
               current_rain_mm_hr: data.telemetry.current_rain_mm_hr ?? 0,
               rain_24h_mm: data.telemetry.rain_24h_mm ?? 0,
+              status: data.telemetry.status ?? "error",
             });
           }
 
@@ -63,6 +64,7 @@ export default function Dashboard() {
         }
       } catch (err) {
         console.error("Backend offline or connection issue:", err);
+        setWeather((prev) => ({ ...prev, status: "error" }));
       }
     };
 
@@ -83,7 +85,7 @@ export default function Dashboard() {
       {/* HEADER */}
       <header className="bg-slate-900/90 border-b border-slate-800 px-6 py-3.5 flex flex-wrap justify-between items-center gap-4">
         <div className="flex items-center gap-3">
-          <div className="w-3 h-3 rounded-full bg-emerald-500 animate-pulse"></div>
+          <div className={`w-3 h-3 rounded-full ${weather.status === 'ok' ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`}></div>
           <div>
             <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
               NH-7 Travel Safety & Landslide Alert System
@@ -128,10 +130,23 @@ export default function Dashboard() {
                 <span className="text-[11px] text-slate-400 block mb-1">Current Rate</span>
                 <div className="flex items-center gap-2">
                   <span className="text-lg font-bold text-white">{weather.current_rain_mm_hr} mm/hr</span>
-                  <span className="px-2 py-0.5 text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-800 rounded-full flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                    Live
-                  </span>
+                  
+                  {/* DYNAMIC TELEMETRY STATUS BADGE */}
+                  {weather.status === "ok" ? (
+                    <span className="px-2 py-0.5 text-[10px] bg-emerald-950 text-emerald-400 border border-emerald-800 rounded-full flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                      Live
+                    </span>
+                  ) : weather.status === "stale" ? (
+                    <span className="px-2 py-0.5 text-[10px] bg-amber-950 text-amber-400 border border-amber-800 rounded-full flex items-center gap-1">
+                      Stale
+                    </span>
+                  ) : (
+                    <span className="px-2 py-0.5 text-[10px] bg-red-950 text-red-400 border border-red-800 rounded-full flex items-center gap-1">
+                      Offline
+                    </span>
+                  )}
+
                 </div>
               </div>
               <div className="bg-slate-950/60 p-3 rounded-lg border border-slate-800/80">
